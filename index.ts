@@ -3,33 +3,32 @@ import fs from "fs";
 import sizeOf from "buffer-image-size";
 
 const whatElementScript = fs.readFileSync("./node_modules/whats-element/dist/whatsElement.js", "utf8");
+const fileName = "example";
 
-(async () => {
+const main = async () => {
+  try {
+    fs.unlinkSync(`${fileName}.json`);
+  } catch(e) {}
+
   const browser = await puppeteer.launch({
     headless: false,
     // slowMo: 1000,
+    args: ["--window-position=0,0"]
   });
+
+  const url = "https://fund.eastmoney.com/";
+  // const url = "https://bj.58.com/xinfang/";
   const page = await browser.newPage();
-
-  // await page.goto("http://10.86.8.247:8080/example_page/");
-  await page.goto("https://fund.eastmoney.com/");
-
+  await page.goto(url);
   await page.waitForTimeout(10000);
 
   await page.screenshot({
-    path: "example.png",
+    path: `${fileName}.png`,
     fullPage: true,
     captureBeyondViewport: true,
   });
 
-  const html = await page.$("html");
-
-  // display:none 时为 null
-  // const html_bounding_box = await html?.boundingBox();
-
-  // const html_width = html_bounding_box?.width || 0;
-  // const html_height = html_bounding_box?.height || 0;
-  const dimensions = sizeOf(fs.readFileSync("example.png"));
+  const dimensions = sizeOf(fs.readFileSync(`${fileName}.png`));
   const html_width = dimensions.width;
   const html_height = dimensions.height;
 
@@ -41,19 +40,29 @@ const whatElementScript = fs.readFileSync("./node_modules/whats-element/dist/wha
 
   console.log("html boundingBox", { html_width, html_height });
 
-  await page.setViewport({ width: html_width, height: html_height });
+  const gap = 1000;
+  const count = Math.floor(html_height / gap);
+  const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
+    const increment = idx === count ? html_height % gap : gap;
+    return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment);
+  })));
+  // const result = await createPage(browser, html_width, html_height, url, 1000, 2000);
 
-  // 1. 在 html 范围内移动鼠标
-  // 2. 触发 mousemove 事件时，给 event.target 增加唯一类名
-  // 3. 对有标记的 dom 元素计算尺寸
-  // 4. 保存元素尺寸和类型信息，一一对应，此处不需要保留原有 dom 树结构
+  const result_json = JSON.stringify(results.flat());
+  fs.writeFileSync(`${fileName}.json`, result_json);
 
-  // 注入 whats-element
-  // await page.evaluate(() => {
-  //   const script = document.createElement("script");
-  //   script.src = "../node_modules/whats-element/dist/whatsElement.js";
-  //   document.head.appendChild(script);
-  // });
+  // await browser.close();
+}
+
+const createPage = async (browser: puppeteer.Browser, w: number, h: number, url: string, start: number, end: number) => {
+  const page = await browser.newPage();
+  await page.goto(url);
+  await page.waitForTimeout(10000);
+
+  await page.setViewport({ width: w, height: h });
+
+  await page.waitForTimeout(10000);
+
   await page.addScriptTag({
     content: whatElementScript,
   });
@@ -61,26 +70,77 @@ const whatElementScript = fs.readFileSync("./node_modules/whats-element/dist/wha
   // 等待 whats-element 加载完成
   await page.waitForTimeout(3000);
 
-  // 增加mousemove事件监听
   await page.evaluate(() => {
     // @ts-ignore
     const whats = new window.whatsElement({ draw: false });
 
     document.body.addEventListener(
-      "mousemove",
+      "mouseover",
       (event) => {
         if (event.target) {
-          const result = whats.getUniqueId(event.target);
-          if (event.target.getAttribute("data-whats-element-wid") === null) {
-            event.target.setAttribute("data-whats-element-wid", result.wid);
-            event.target.setAttribute("data-whats-element-type", result.type);
+          const target = event.target as HTMLElement;
 
-            event.target.style.color = "red";
+          event.preventDefault();
+          event.stopPropagation();
+          event.stopImmediatePropagation();
+
+          if (target.tagName.toLowerCase() === "body") {
+            return;
+          }
+
+          const result = whats.getUniqueId(event.target);
+          if (target.getAttribute("data-whats-element-wid") === null) {
+            target.setAttribute("data-whats-element-wid", result.wid);
+            target.setAttribute("data-whats-element-type", result.type);
+
+            const boundingBox = target.getBoundingClientRect();
+            result.width = boundingBox.width;
+            result.height = boundingBox.height;
+
+            target.style.color = "red";
+            // target.style.backgroundColor = "red";
 
             // @ts-ignore
             window.__whats_element_result
+              // @ts-ignore
               ? window.__whats_element_result.push(result)
+              // @ts-ignore
               : (window.__whats_element_result = [result]);
+
+            const display = getComputedStyle(target).display;
+            if (display === "block" || display === "table-cell") {
+              const nodeList = target.childNodes;
+              for (let k = 0; k < nodeList.length; k++) {
+                const node = nodeList[k];
+                
+                // 文字节点增加 span 标签
+                if (node.nodeType === 3 && node.textContent?.trim() !== "") {
+                  const text = node.textContent;
+                  const textElement = document.createElement("span");
+                  textElement.className = `span${k}`;
+                  textElement.innerText = text ?? "";
+                  textElement.style.display = "inline";
+                  textElement.style.float = "none";
+
+                  textElement.setAttribute("data-whats-element-wid", `${result.wid}>.${textElement.className}`);
+                  textElement.setAttribute("data-whats-element-type", result.type);
+
+                  node.replaceWith(textElement);
+
+                  const boundingBox = textElement.getBoundingClientRect();
+                
+                  // @ts-ignore
+                  window.__whats_element_result.push({
+                      ...result,
+                      wid: `${result.wid}>.${textElement.className}`,
+                      width: boundingBox.width,
+                      height: boundingBox.height,
+                      left: boundingBox.left,
+                      top: boundingBox.top,
+                  })
+                }
+              }  
+            }
           }
         }
       },
@@ -88,16 +148,23 @@ const whatElementScript = fs.readFileSync("./node_modules/whats-element/dist/wha
     );
   });
 
-  for (let x = 0; x <= html_width; x += 1) {
-    await page.mouse.move(x, 0);
-    await page.mouse.move(x, html_height);
+  for (let x = 0; x <= w; x += 15) {
+    for ( let y = start; y <= end; y += 10) {
+      await page.mouse.move(x, y);
+    }
   }
 
   const result = await page.evaluate(() => {
     // @ts-ignore
     return window.__whats_element_result;
-  });
-  console.log(result.length);
+  }) || [];
 
-  // await browser.close();
-})();
+  console.log(result.length);
+  if (result.length === 0) {
+    console.error("get result error", start, end);
+  }
+
+  return result ?? [];
+};
+
+main();
