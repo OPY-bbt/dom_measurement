@@ -13,7 +13,8 @@ const main = async () => {
   const browser = await puppeteer.launch({
     headless: false,
     // slowMo: 1000,
-    args: ["--window-position=0,0"]
+    args: ["--window-position=0,0"],
+    devtools: true,
   });
 
   const url = "https://fund.eastmoney.com/";
@@ -40,13 +41,22 @@ const main = async () => {
 
   console.log("html boundingBox", { html_width, html_height });
 
+  await page.setViewport({ width: html_width, height: html_height });
+  await page.waitForTimeout(10000);
+  await page.screenshot({
+    path: `${fileName}.png`,
+    fullPage: true,
+    captureBeyondViewport: true,
+  });
+
   const gap = 1000;
   const count = Math.floor(html_height / gap);
-  const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
-    const increment = idx === count ? html_height % gap : gap;
-    return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment);
-  })));
-  // const result = await createPage(browser, html_width, html_height, url, 1000, 2000);
+  // const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
+  //   const increment = idx === count ? html_height % gap : gap;
+  //   return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment);
+  // })));
+  const result = await createPage(browser, html_width, html_height, url, 5000, 6000);
+  const results = [result];
 
   const result_json = JSON.stringify(results.flat());
   fs.writeFileSync(`${fileName}.json`, result_json);
@@ -88,7 +98,14 @@ const createPage = async (browser: puppeteer.Browser, w: number, h: number, url:
             return;
           }
 
-          const result = whats.getUniqueId(event.target);
+          let result;
+          try {
+            result = whats.getUniqueId(target);
+          } catch(e) {
+            target.id = "";
+            result = whats.getUniqueId(target);
+          }
+
           if (target.getAttribute("data-whats-element-wid") === null) {
             target.setAttribute("data-whats-element-wid", result.wid);
             target.setAttribute("data-whats-element-type", result.type);
@@ -121,6 +138,7 @@ const createPage = async (browser: puppeteer.Browser, w: number, h: number, url:
                   textElement.innerText = text ?? "";
                   textElement.style.display = "inline";
                   textElement.style.float = "none";
+                  textElement.style.padding = "0";
 
                   textElement.setAttribute("data-whats-element-wid", `${result.wid}>.${textElement.className}`);
                   textElement.setAttribute("data-whats-element-type", result.type);
