@@ -7,17 +7,18 @@
     <title>Document</title>
 </head>
 <body>
-    <button onclick="openImage()">天天基金</button><button onclick="openImage(3)">58同城</button><button onclick="openImage(2)">政府机构</button>
+    <button onclick="openImage('httpsfundeastmoneycom')">天天基金</button>
+    <button onclick="openImage('httpwwwgovcnhudong2020-0709content_5525332htm')">政府机构</button>
+    <button onclick="openImage('httpswwwqcccomareahun_430900')">企查查</button>
     <br />
     <canvas></canvas>
     <script>
-
-        function openImage(num = "") {
+        function openImage(id) {
             const canvas = document.body.querySelector("canvas");
-            const filename = `example${num}`;
+            const filename = id;
             const img = new Image();
             img.onload = drawImg;
-            img.src = `./results/${filename}.png`;
+            img.src = `${filename}.png`;
 
             function drawImg() {
                 canvas.width = this.naturalWidth;
@@ -26,7 +27,7 @@
                 const ctx = canvas.getContext("2d");
                 ctx.drawImage(img, 0, 0);
 
-                fetch(`./results/${filename}.json`).then(res => res.json()).then(json => {
+                fetch(`${filename}.json`).then(res => res.json()).then(json => {
                     for(let i = 0; i < json.length; i++) {
                         const d = json[i];
 
@@ -34,6 +35,8 @@
                         ctx.strokeStyle="red";
                         ctx.rect(d.left, d.top, d.width, d.height);
                         ctx.stroke();
+
+                        // ctx.fillText(`${d.left}*${d.top}`, d.left, d.top);
                     }
                 })
             }
