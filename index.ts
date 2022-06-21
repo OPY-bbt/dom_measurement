@@ -17,8 +17,9 @@ const main = async () => {
     devtools: true,
   });
 
-  const url = "https://fund.eastmoney.com/";
-  // const url = "https://bj.58.com/xinfang/";
+  // const url = "https://fund.eastmoney.com/";
+  const url = "https://bj.58.com/xinfang/";
+  // const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
   const page = await browser.newPage();
   await page.goto(url);
   await page.waitForTimeout(10000);
@@ -51,17 +52,21 @@ const main = async () => {
 
   const gap = 1000;
   const count = Math.floor(html_height / gap);
-  // const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
-  //   const increment = idx === count ? html_height % gap : gap;
-  //   return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment);
-  // })));
-  const result = await createPage(browser, html_width, html_height, url, 5000, 6000);
-  const results = [result];
+  const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
+    const increment = idx === count ? html_height % gap : gap;
 
+    // 防止 IP 被封，增加延迟
+    return page.waitForTimeout(10000 * idx).then(() => {
+      return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment)
+    });
+  })));
+  // const result = await createPage(browser, html_width, html_height, url, 9000, 11782);
+  // const results = [result];
+  
   const result_json = JSON.stringify(results.flat());
   fs.writeFileSync(`${fileName}.json`, result_json);
 
-  // await browser.close();
+  await browser.close();
 }
 
 const createPage = async (browser: puppeteer.Browser, w: number, h: number, url: string, start: number, end: number) => {
@@ -80,9 +85,33 @@ const createPage = async (browser: puppeteer.Browser, w: number, h: number, url:
   // 等待 whats-element 加载完成
   await page.waitForTimeout(3000);
 
+  // 删除display:none的元素，防止 hover 显示
+  await page.evaluate(() => {
+    const removeElement = (element: Element) => {
+      const style = getComputedStyle(element);
+
+      if (style.display === "none") {
+        element.parentNode?.removeChild(element);
+      }
+
+      if (element.children.length > 0) {
+        for (let i = 0; i < element.children.length; i++) {
+          if (element.children[i]) {
+            removeElement(element.children[i]);
+          }
+        }
+      }
+    };
+
+    removeElement(document.body);
+  });
+
   await page.evaluate(() => {
     // @ts-ignore
     const whats = new window.whatsElement({ draw: false });
+
+    // 滚动条会导致定位出现偏移
+    document.body.style.overflow = "hidden";
 
     document.body.addEventListener(
       "mouseover",
@@ -132,13 +161,16 @@ const createPage = async (browser: puppeteer.Browser, w: number, h: number, url:
                 
                 // 文字节点增加 span 标签
                 if (node.nodeType === 3 && node.textContent?.trim() !== "") {
-                  const text = node.textContent;
+                  const text = node.textContent?.replace(/^[\r\n]|[\r\n]$/g, "");
                   const textElement = document.createElement("span");
                   textElement.className = `span${k}`;
                   textElement.innerText = text ?? "";
                   textElement.style.display = "inline";
                   textElement.style.float = "none";
                   textElement.style.padding = "0";
+                  textElement.style.lineHeight = "inherit";
+                  textElement.style.fontWeight = "inherit";
+                  textElement.style.fontSize = "inherit";
 
                   textElement.setAttribute("data-whats-element-wid", `${result.wid}>.${textElement.className}`);
                   textElement.setAttribute("data-whats-element-type", result.type);

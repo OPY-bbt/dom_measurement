@@ -7,31 +7,36 @@
     <title>Document</title>
 </head>
 <body>
+    <button onclick="openImage()">天天基金</button><button onclick="openImage(3)">58同城</button><button onclick="openImage(2)">政府机构</button>
+    <br />
     <canvas></canvas>
     <script>
-        const canvas = document.body.querySelector("canvas");
 
-        const img = new Image();
-        img.onload = drawImg;
-        img.src = "./example.png";
+        function openImage(num = "") {
+            const canvas = document.body.querySelector("canvas");
+            const filename = `example${num}`;
+            const img = new Image();
+            img.onload = drawImg;
+            img.src = `./results/${filename}.png`;
 
-        function drawImg() {
-            canvas.width = this.naturalWidth;
-            canvas.height = this.naturalHeight;
+            function drawImg() {
+                canvas.width = this.naturalWidth;
+                canvas.height = this.naturalHeight;
 
-            const ctx = canvas.getContext("2d");
-            ctx.drawImage(img, 0, 0);
+                const ctx = canvas.getContext("2d");
+                ctx.drawImage(img, 0, 0);
 
-            fetch("./example.json").then(res => res.json()).then(json => {
-                for(let i = 0; i < json.length; i++) {
-                    const d = json[i];
+                fetch(`./results/${filename}.json`).then(res => res.json()).then(json => {
+                    for(let i = 0; i < json.length; i++) {
+                        const d = json[i];
 
-                    ctx.beginPath();
-                    ctx.strokeStyle="red";
-                    ctx.rect(d.left, d.top, d.width, d.height);
-                    ctx.stroke();
-                }
-            })
+                        ctx.beginPath();
+                        ctx.strokeStyle="red";
+                        ctx.rect(d.left, d.top, d.width, d.height);
+                        ctx.stroke();
+                    }
+                })
+            }
         }
     </script>
 </body>
