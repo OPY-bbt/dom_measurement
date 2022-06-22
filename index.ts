@@ -2,19 +2,17 @@ import puppeteer from "puppeteer";
 import fs from "fs";
 import sizeOf from "buffer-image-size";
 
-const whatElementScript = fs.readFileSync(
-  "./whatsElement.js",
-  "utf8"
-);
+const whatElementScript = fs.readFileSync("./whatsElement.js", "utf8");
 
-const url = "https://fund.eastmoney.com/";
+// const url = "https://fund.eastmoney.com/";
 // const url = "https://www.qcc.com/area/hun_430900";
-// const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
+const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
 const fileName = url.replace(/[/.:]/g, "");
 
 const main = async () => {
   try {
     fs.unlinkSync(`${fileName}.json`);
+    fs.unlinkSync(`${fileName}.png`);
   } catch (e) {}
 
   const browser = await puppeteer.launch({
@@ -55,16 +53,62 @@ const main = async () => {
     captureBeyondViewport: true,
   });
 
+  const frameInfos = await page.evaluate(() => {
+    const num = window.frames.length;
+    const frames = document.body.querySelectorAll("iframe");
+
+    return new Array(num).fill(0).map((_, idx) => {
+      const frameWin = window.frames[idx];
+      const boundingBox = frames[idx].getBoundingClientRect();
+
+      return {
+        url: frameWin.location.href,
+        innerWidth: frameWin.innerWidth,
+        innerHeight: frameWin.innerHeight,
+        left: boundingBox.left,
+        top: boundingBox.top,
+      };
+    });
+  });
+
   const gap = 1000;
   const count = Math.floor(html_height / gap);
-  const results = await Promise.all((new Array(count + 1).fill(0).map((_, idx) => {
+
+  const rootPagePromise = new Array(count + 1).fill(0).map((_, idx) => {
     const increment = idx === count ? html_height % gap : gap;
 
     // 防止 IP 被封，增加延迟
     return page.waitForTimeout(10000 * idx).then(() => {
-      return createPage(browser, html_width, html_height, url, gap * idx, gap * idx + increment)
+      return createPage(
+        browser,
+        html_width,
+        html_height,
+        url,
+        gap * idx,
+        gap * idx + increment
+      );
     });
-  })));
+  });
+
+  const framePromise = frameInfos.map((_, idx) => {
+    const frameInfo = frameInfos[idx];
+
+    return page.waitForTimeout(10000).then(() => {
+      return createPage(
+        browser,
+        frameInfo.innerWidth,
+        frameInfo.innerHeight,
+        frameInfo.url,
+        0,
+        frameInfo.innerHeight,
+        frameInfo.left,
+        frameInfo.top
+      );
+    });
+  });
+
+  const results = await Promise.all([...rootPagePromise, ...framePromise]);
+
   // const result = await createPage(
   //   browser,
   //   html_width,
@@ -87,7 +131,9 @@ const createPage = async (
   h: number,
   url: string,
   start: number,
-  end: number
+  end: number,
+  dx: number = 0,
+  dy: number = 0
 ) => {
   const page = await browser.newPage();
   await page.goto(url);
@@ -109,7 +155,11 @@ const createPage = async (
     const removeElement = (element: Element) => {
       const style = getComputedStyle(element);
 
-      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      if (
+        style.display === "none" ||
+        style.visibility === "hidden" ||
+        style.opacity === "0"
+      ) {
         element.parentNode?.removeChild(element);
       }
 
@@ -168,51 +218,48 @@ const createPage = async (
                   (window.__whats_element_result = [result]);
             }
 
-            // const display = getComputedStyle(target).display;
-            // if (display === "block" || display === "table-cell") {
-              const nodeList = target.childNodes;
-              for (let k = 0; k < nodeList.length; k++) {
-                const node = nodeList[k];
+            const nodeList = target.childNodes;
+            for (let k = 0; k < nodeList.length; k++) {
+              const node = nodeList[k];
 
-                // 文字节点增加 span 标签
-                if (node.nodeType === 3 && node.textContent?.trim() !== "") {
-                  const text = node.textContent;
-                  const textElement = document.createElement("span");
-                  textElement.className = `span${k}`;
-                  textElement.textContent = text ?? "";
-                  textElement.style.display = "inline";
-                  textElement.style.float = "none";
-                  textElement.style.padding = "0";
-                  textElement.style.margin = "0";
-                  textElement.style.lineHeight = "inherit";
-                  textElement.style.fontWeight = "inherit";
-                  textElement.style.fontSize = "inherit";
+              // 文字节点增加 span 标签
+              if (node.nodeType === 3 && node.textContent?.trim() !== "") {
+                const text = node.textContent;
+                const textElement = document.createElement("span");
+                textElement.className = `span${k}`;
+                textElement.textContent = text ?? "";
+                textElement.style.display = "inline";
+                textElement.style.float = "none";
+                textElement.style.padding = "0";
+                textElement.style.margin = "0";
+                textElement.style.lineHeight = "inherit";
+                textElement.style.fontWeight = "inherit";
+                textElement.style.fontSize = "inherit";
 
-                  textElement.setAttribute(
-                    "data-whats-element-wid",
-                    `${result.wid}>.${textElement.className}`
-                  );
-                  textElement.setAttribute(
-                    "data-whats-element-type",
-                    result.type
-                  );
+                textElement.setAttribute(
+                  "data-whats-element-wid",
+                  `${result.wid}>.${textElement.className}`
+                );
+                textElement.setAttribute(
+                  "data-whats-element-type",
+                  result.type
+                );
 
-                  node.replaceWith(textElement);
+                node.replaceWith(textElement);
 
-                  const boundingBox = textElement.getBoundingClientRect();
+                const boundingBox = textElement.getBoundingClientRect();
 
-                  // @ts-ignore
-                  window.__whats_element_result.push({
-                    ...result,
-                    wid: `${result.wid}>.${textElement.className}`,
-                    width: boundingBox.width,
-                    height: boundingBox.height,
-                    left: boundingBox.left,
-                    top: boundingBox.top,
-                  });
-                }
+                // @ts-ignore
+                window.__whats_element_result.push({
+                  ...result,
+                  wid: `${result.wid}>.${textElement.className}`,
+                  width: boundingBox.width,
+                  height: boundingBox.height,
+                  left: boundingBox.left,
+                  top: boundingBox.top,
+                });
               }
-            // }
+            }
           }
         }
       },
@@ -236,6 +283,12 @@ const createPage = async (
   if (result.length === 0) {
     console.error("get result error", start, end);
   }
+
+  // @ts-ignore
+  result.forEach((re) => {
+    re.left = re.left + dx;
+    re.top = re.top + dy;
+  });
 
   return result ?? [];
 };
