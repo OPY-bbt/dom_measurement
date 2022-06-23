@@ -4,9 +4,9 @@ import sizeOf from "buffer-image-size";
 
 const whatElementScript = fs.readFileSync("./whatsElement.js", "utf8");
 
-// const url = "https://fund.eastmoney.com/";
+const url = "https://fund.eastmoney.com/";
 // const url = "https://www.qcc.com/area/hun_430900";
-const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
+// const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
 const fileName = url.replace(/[/.:]/g, "");
 
 const main = async () => {
@@ -313,6 +313,27 @@ const createPage = async (
                 const clientRects = range.getClientRects();
                 const firstClientRect = clientRects[0];
 
+                const isRowText = (node: Node ): boolean => {
+                  const range = document.createRange();
+                
+                  // @ts-ignore - nodeType === Node.textNode
+                  const length = node.length;
+                
+                  if (length <= 1) {
+                    return false;
+                  }
+                
+                  range.setStart(node, 0);
+                  range.setEnd(node, 1);
+                  const firstCharY = range.getBoundingClientRect().top;
+                
+                  range.setStart(node, 1);
+                  range.setEnd(node, 2);
+                  const secondCharY = range.getBoundingClientRect().top;
+                
+                  return firstCharY === secondCharY;
+                };
+
                 if (
                   isRowText(node) &&
                   firstClientRect &&
@@ -368,27 +389,6 @@ const createPage = async (
   await page.close();
 
   return result ?? [];
-};
-
-const isRowText = (node: Node ): boolean => {
-  const range = document.createRange();
-
-  // @ts-ignore - nodeType === Node.textNode
-  const length = node.length;
-
-  if (length <= 1) {
-    return false;
-  }
-
-  range.setStart(node, 0);
-  range.setEnd(node, 1);
-  const firstCharY = range.getBoundingClientRect().top;
-
-  range.setStart(node, 1);
-  range.setEnd(node, 2);
-  const secondCharY = range.getBoundingClientRect().top;
-
-  return firstCharY === secondCharY;
 };
 
 main();
