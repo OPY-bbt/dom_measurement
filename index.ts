@@ -95,8 +95,8 @@ const main = async () => {
       html_width,
       html_height,
       url,
-      0,
-      1500
+      4500,
+      4600
     );
     results = [result];
   } else {
@@ -244,7 +244,7 @@ const createPage = async (
             const totalTextNode = Array.from(target.childNodes).every(
               (v) => v.nodeType === 3
             );
-            const hasBackgroundImage = getComputedStyle(target).backgroundImage;
+            const hasBackgroundImage = getComputedStyle(target).backgroundImage !== "none";
             const isSelfCloseTag = [
               "img",
               "br",
