@@ -1,12 +1,17 @@
-import puppeteer from "puppeteer";
+import puppeteer, { Target } from "puppeteer";
 import fs from "fs";
 import sizeOf from "buffer-image-size";
 
 const whatElementScript = fs.readFileSync("./whatsElement.js", "utf8");
 
+const debug = false;
+
 const url = "https://fund.eastmoney.com/";
 // const url = "https://www.qcc.com/area/hun_430900";
 // const url = "http://www.gov.cn/hudong/2020-07/09/content_5525332.htm";
+// const url = "https://www.trip.com/travel-guide/";
+// const url = "https://jn.meituan.com/";
+
 const fileName = url.replace(/[/.:]/g, "");
 
 const main = async () => {
@@ -16,13 +21,15 @@ const main = async () => {
   } catch (e) {}
 
   const browser = await puppeteer.launch({
-    headless: true,
+    headless: !debug,
     // slowMo: 1000,
     args: ["--window-position=0,0", "--disable-web-security"],
     devtools: true,
   });
 
   const page = await browser.newPage();
+  // 美团 302 重定向
+  await page.goto(url);
   await page.goto(url);
   await page.waitForTimeout(10000);
 
@@ -53,6 +60,8 @@ const main = async () => {
     captureBeyondViewport: true,
   });
 
+  await removeInvisibleElement(page);
+
   const frameInfos = await page.evaluate(() => {
     const num = window.frames.length;
     const frames = document.body.querySelectorAll("iframe");
@@ -78,61 +87,66 @@ const main = async () => {
 
   console.info("get iframe, the count is", frameInfos.length);
 
-  const gap = 1000;
-  const count = Math.floor(html_height / gap);
+  let results = [];
+  if (debug) {
+    const result = await createPage(
+      browser,
+      {},
+      html_width,
+      html_height,
+      url,
+      0,
+      1500
+    );
+    results = [result];
+  } else {
+    const gap = 1000;
+    const count = Math.floor(html_height / gap);
 
-  const rootPagePromise = new Array(count + 1).fill(0).map((_, idx) => {
-    const increment = idx === count ? html_height % gap : gap;
+    const rootPagePromise = new Array(count + 1).fill(0).map((_, idx) => {
+      const increment = idx === count ? html_height % gap : gap;
 
-    // 防止 IP 被封，增加延迟
-    return page.waitForTimeout(1000 * idx).then(() => {
-      return createPage(
-        browser,
-        {},
-        html_width,
-        html_height,
-        url,
-        gap * idx,
-        gap * idx + increment
-      );
+      // 防止 IP 被封，增加延迟
+      return page.waitForTimeout(1000 * idx).then(() => {
+        return createPage(
+          browser,
+          {},
+          html_width,
+          html_height,
+          url,
+          gap * idx,
+          gap * idx + increment
+        );
+      });
     });
-  });
 
-  const framePromise = frameInfos.map((_, idx) => {
-    const frameInfo = frameInfos[idx];
+    const framePromise = frameInfos.map((_, idx) => {
+      const frameInfo = frameInfos[idx];
 
-    return page.waitForTimeout(10000).then(() => {
-      return createPage(
-        browser,
-        frameInfo.attributes,
-        frameInfo.innerWidth,
-        frameInfo.innerHeight,
-        frameInfo.url,
-        0,
-        frameInfo.innerHeight,
-        frameInfo.left,
-        frameInfo.top
-      );
+      return page.waitForTimeout(10000).then(() => {
+        return createPage(
+          browser,
+          frameInfo.attributes,
+          frameInfo.innerWidth,
+          frameInfo.innerHeight,
+          frameInfo.url,
+          0,
+          frameInfo.innerHeight,
+          frameInfo.left,
+          frameInfo.top
+        );
+      });
     });
-  });
 
-  const results = await Promise.all([...rootPagePromise, ...framePromise]);
-
-  // const result = await createPage(
-  //   browser,
-  //   {},
-  //   html_width,
-  //   html_height,
-  //   url,
-  //   4500,
-  //   4600
-  // );
-  // const results = [result];
+    results = await Promise.all([...rootPagePromise, ...framePromise]);
+  }
 
   const result_json = JSON.stringify(results.flat());
   fs.writeFileSync(`${fileName}.json`, result_json);
 
-  await browser.close();
+  if (!debug) {
+    await browser.close();
+  }
 };
 
 const createPage = async (
@@ -151,6 +165,7 @@ const createPage = async (
   await page.waitForTimeout(10000);
 
   await page.setViewport({ width: w, height: h });
+  await page.reload();
 
   await page.waitForTimeout(10000);
 
@@ -167,30 +182,7 @@ const createPage = async (
     document.body.setAttribute("marginheight", payload.marginheight);
   }, payload);
 
-  // 删除display:none的元素，防止 hover 显示
-  await page.evaluate(() => {
-    const removeElement = (element: Element) => {
-      const style = getComputedStyle(element);
-
-      if (
-        style.display === "none" ||
-        style.visibility === "hidden" ||
-        style.opacity === "0"
-      ) {
-        element.parentNode?.removeChild(element);
-      }
-
-      if (element.children.length > 0) {
-        for (let i = 0; i < element.children.length; i++) {
-          if (element.children[i]) {
-            removeElement(element.children[i]);
-          }
-        }
-      }
-    };
-
-    removeElement(document.body);
-  });
+  await removeInvisibleElement(page);
 
   await page.evaluate(() => {
     // @ts-ignore
@@ -248,17 +240,27 @@ const createPage = async (
 
             // 过滤掉干扰元素， 比如 a > img, 那么 a 元素可以忽略
             // a > 只有 textNode, 那么 a 元素可以忽略
-            // 自闭标签，如 <img />, <br />, <input />, <textarea />, <select /> 需要计算在内
+            // 自闭标签，如 <img />, <br />, <input />, <textarea />, <canvas /> 需要计算在内
+            const totalTextNode = Array.from(target.childNodes).every(
+              (v) => v.nodeType === 3
+            );
+            const hasBackgroundImage = getComputedStyle(target).backgroundImage;
+            const isSelfCloseTag = [
+              "img",
+              "br",
+              "input",
+              "textarea",
+              "canvas",
+            ].includes(target.tagName.toLowerCase());
+
             if (
               target.children.length === 0 &&
-              (Array.from(target.childNodes).some((v) => v.nodeType !== 3) ||
-                ["img", "br", "input", "textarea", "canvas"].includes(
-                  target.tagName.toLowerCase()
-                ))
+              (!totalTextNode || isSelfCloseTag || hasBackgroundImage)
             ) {
               commit(result);
             }
 
+            // 有些非自闭标签，也需要特殊处理
             if (["select"].includes(target.tagName.toLowerCase())) {
               commit(result);
             }
@@ -313,29 +315,29 @@ const createPage = async (
                 const clientRects = range.getClientRects();
                 const firstClientRect = clientRects[0];
 
-                const isRowText = (node: Node ): boolean => {
+                const isRowTextNode = (node: Node): boolean => {
                   const range = document.createRange();
-                
+
                   // @ts-ignore - nodeType === Node.textNode
                   const length = node.length;
-                
+
                   if (length <= 1) {
                     return false;
                   }
-                
+
                   range.setStart(node, 0);
                   range.setEnd(node, 1);
                   const firstCharY = range.getBoundingClientRect().top;
-                
+
                   range.setStart(node, 1);
                   range.setEnd(node, 2);
                   const secondCharY = range.getBoundingClientRect().top;
-                
+
                   return firstCharY === secondCharY;
                 };
 
                 if (
-                  isRowText(node) &&
+                  isRowTextNode(node) &&
                   firstClientRect &&
                   minh < firstClientRect.height * 2
                 ) {
@@ -374,7 +376,9 @@ const createPage = async (
       return window.__whats_element_result;
     })) || [];
 
-  console.log(`url: ${url}, start: ${start}, end: ${end}, result.length: ${result.length}`);
+  console.log(
+    `url: ${url}, start: ${start}, end: ${end}, result.length: ${result.length}`
+  );
 
   if (result.length === 0) {
     console.error("get result error", start, end);
@@ -386,9 +390,52 @@ const createPage = async (
     re.top = re.top + dy;
   });
 
-  await page.close();
+  if (!debug) {
+    await page.close();
+  }
 
   return result ?? [];
+};
+
+const removeInvisibleElement = async (page: puppeteer.Page) => {
+  await page.evaluate(() => {
+    const removeElement = (element: Element) => {
+      const style = getComputedStyle(element);
+
+      const none = style.display === "none";
+      const hidden = style.visibility === "hidden";
+      const opacity = style.opacity === "0";
+      const slider = Array.from(element.classList).some((v) =>
+        v.includes("slider")
+      );
+
+      const boundingBox = element.getBoundingClientRect();
+      const boundingBoxVisible =
+        boundingBox.left + boundingBox.width > 0 &&
+        boundingBox.top + boundingBox.height > 0 &&
+        boundingBox.right > 0 &&
+        boundingBox.bottom > 0;
+
+      // 删除 link 标签会影响样式
+      const isLink = element.tagName.toLowerCase() === "link";
+      // 不要删除掉 slider
+      if (
+        (none || hidden || opacity || !boundingBoxVisible) &&
+        !slider &&
+        !isLink
+      ) {
+        element.parentNode?.removeChild(element);
+      }
+
+      if (element.children.length > 0) {
+        Array.from(element.children).forEach((child) => {
+          removeElement(child);
+        });
+      }
+    };
+
+    removeElement(document.body);
+  });
 };
 
 main();
