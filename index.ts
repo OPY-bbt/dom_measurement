@@ -85,7 +85,7 @@ const main = async () => {
     const increment = idx === count ? html_height % gap : gap;
 
     // 防止 IP 被封，增加延迟
-    return page.waitForTimeout(10000 * idx).then(() => {
+    return page.waitForTimeout(1000 * idx).then(() => {
       return createPage(
         browser,
         {},
@@ -312,7 +312,9 @@ const createPage = async (
 
                 const clientRects = range.getClientRects();
                 const firstClientRect = clientRects[0];
+
                 if (
+                  isRowText(node) &&
                   firstClientRect &&
                   minh < firstClientRect.height * 2
                 ) {
@@ -351,7 +353,8 @@ const createPage = async (
       return window.__whats_element_result;
     })) || [];
 
-  console.log(result.length);
+  console.log(`url: ${url}, start: ${start}, end: ${end}, result.length: ${result.length}`);
+
   if (result.length === 0) {
     console.error("get result error", start, end);
   }
@@ -365,6 +368,27 @@ const createPage = async (
   await page.close();
 
   return result ?? [];
+};
+
+const isRowText = (node: Node ): boolean => {
+  const range = document.createRange();
+
+  // @ts-ignore - nodeType === Node.textNode
+  const length = node.length;
+
+  if (length <= 1) {
+    return false;
+  }
+
+  range.setStart(node, 0);
+  range.setEnd(node, 1);
+  const firstCharY = range.getBoundingClientRect().top;
+
+  range.setStart(node, 1);
+  range.setEnd(node, 2);
+  const secondCharY = range.getBoundingClientRect().top;
+
+  return firstCharY === secondCharY;
 };
 
 main();
