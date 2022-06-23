@@ -95,8 +95,8 @@ const main = async () => {
       html_width,
       html_height,
       url,
-      4500,
-      4600
+      0,
+      500
     );
     results = [result];
   } else {
@@ -411,10 +411,10 @@ const removeInvisibleElement = async (page: puppeteer.Page) => {
 
       const boundingBox = element.getBoundingClientRect();
       const boundingBoxVisible =
-        boundingBox.left + boundingBox.width > 0 &&
-        boundingBox.top + boundingBox.height > 0 &&
-        boundingBox.right > 0 &&
-        boundingBox.bottom > 0;
+        boundingBox.left + boundingBox.width >= 0 &&
+        boundingBox.top + boundingBox.height >= 0 &&
+        boundingBox.right >= 0 &&
+        boundingBox.bottom >= 0;
 
       // 删除 link 标签会影响样式
       const isLink = element.tagName.toLowerCase() === "link";
