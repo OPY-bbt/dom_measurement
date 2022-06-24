@@ -16,8 +16,8 @@ const fileName = url.replace(/[/.:]/g, "");
 
 const main = async () => {
   try {
-    fs.unlinkSync(`${fileName}.json`);
-    fs.unlinkSync(`${fileName}.png`);
+    fs.unlinkSync(`./results/${fileName}.json`);
+    fs.unlinkSync(`./results/${fileName}.png`);
   } catch (e) {}
 
   const browser = await puppeteer.launch({
@@ -34,12 +34,12 @@ const main = async () => {
   await page.waitForTimeout(10000);
 
   await page.screenshot({
-    path: `${fileName}.png`,
+    path: `./results/${fileName}.png`,
     fullPage: true,
     captureBeyondViewport: true,
   });
 
-  const dimensions = sizeOf(fs.readFileSync(`${fileName}.png`));
+  const dimensions = sizeOf(fs.readFileSync(`./results/${fileName}.png`));
   const html_width = dimensions.width;
   const html_height = dimensions.height;
 
@@ -55,7 +55,7 @@ const main = async () => {
   await page.reload();
   await page.waitForTimeout(1000);
   await page.screenshot({
-    path: `${fileName}.png`,
+    path: `./results/${fileName}.png`,
     fullPage: true,
     captureBeyondViewport: true,
   });
@@ -142,7 +142,7 @@ const main = async () => {
   }
 
   const result_json = JSON.stringify(results.flat());
-  fs.writeFileSync(`${fileName}.json`, result_json);
+  fs.writeFileSync(`./results/${fileName}.json`, result_json);
 
   if (!debug) {
     await browser.close();
