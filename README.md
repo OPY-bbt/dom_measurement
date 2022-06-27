@@ -1,2 +1,2 @@
 # dom_measurement
-for ai training
+for cv training
